@@ -1,4 +1,4 @@
-# Lag-Mover
+# LAGMOVER
 Navigation App
 # LAGMOVER - Your City, Your Pace 🇳🇬
 
