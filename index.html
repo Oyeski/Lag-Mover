@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LAGMOVER - Your City, Your Pace</title>
+    
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    
+    <style>
+        :root {
+            --primary-blue: #0b5394;
+            --dark-blue: #073763;
+            --lagos-yellow: #ffcc00;
+            --light-bg: #f4f7f6;
+        }
+
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; background: var(--light-bg); color: #333; }
+        
+        /* Premium Header Styling */
+        header { 
+            background: linear-gradient(135deg, var(--primary-blue) 0%, var(--dark-blue) 100%); 
+            color: white; 
+            padding: 25px 15px; 
+            text-align: center; 
+            border-radius: 0 0 25px 25px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        }
+        header h1 { margin: 0; letter-spacing: 3px; font-size: 1.8em; text-transform: uppercase; }
+        header p { margin: 5px 0 0; font-size: 0.9em; opacity: 0.9; font-style: italic; }
+
+        #controls { 
+            padding: 20px; 
+            background: white; 
+            margin: -20px 15px 15px 15px; 
+            border-radius: 15px; 
+            display: flex; 
+            flex-direction: column; 
+            gap: 12px; 
+            box-shadow: 0 4px 10px rgba(0,0,0,0.05);
+            position: relative;
+            z-index: 1000;
+        }
+
+        input, select, button { 
+            padding: 12px; 
+            border: 1px solid #ddd; 
+            border-radius: 8px; 
+            font-size: 14px; 
+            outline: none;
+        }
+
+        .btn-group { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+
+        button { 
+            background: var(--primary-blue); 
+            color: white; 
+            border: none; 
+            font-weight: bold; 
+            transition: 0.3s;
+            cursor: pointer;
+        }
+
+        button:active { transform: scale(0.98); }
+        .btn-gps { background: #28a745; }
+
+        #map { height: 45vh; width: 100%; z-index: 1; }
+
+        #info-panel { 
+            padding: 20px; 
+            display: grid; 
+            grid-template-columns: 1fr; 
+            gap: 15px; 
+        }
+
+        .card { 
+            background: white; 
+            padding: 15px; 
+            border-radius: 12px; 
+            border-left: 5px solid var(--primary-blue);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+        }
+
+        .stat-row { display: flex; justify-content: space-between; margin-bottom: 8px; }
+        .label { font-weight: bold; color: #666; }
+        .value { color: var(--dark-blue); font-weight: 700; }
+        
+        #busalert { color: #d9534f; font-weight: bold; text-align: center; margin-top: 10px; }
+    </style>
+</head>
+
+<body>
+
+<header>
+    <h1>LAGMOVER</h1>
+    <p>"Your City, Your Pace"</p>
+</header>
+
+<div id="controls">
+    <input id="start" placeholder="Starting point (e.g., Ikorodu)">
+    <input id="end" placeholder="Destination (e.g., Victoria Island)">
+
+    <select id="transport">
+        <option value="AUTO">Auto Detect Mode</option>
+        <option value="DRIVING">Bus (Danfo/Staff Bus)</option>
+        <option value="TRANSIT">BRT (Standard)</option>
+        <option value="KEKE">Keke Marwa</option>
+        <option value="OKADA">Okada (Last Mile)</option>
+        <option value="WALKING">Walking</option>
+    </select>
+
+    <div class="btn-group">
+        <button onclick="calcRoute()">FIND ROUTE</button>
+        <button class="btn-gps" onclick="getLocation()">MY LOCATION</button>
+    </div>
+</div>
+
+<div id="map"></div>
+
+<div id="info-panel">
+    <div class="card">
+        <div class="stat-row"><span class="label">Distance:</span> <span class="value" id="distance">-</span></div>
+        <div class="stat-row"><span class="label">Duration:</span> <span class="value" id="eta">-</span></div>
+        <div class="stat-row"><span class="label">Est. Fare:</span> <span class="value" id="fare">-</span></div>
+    </div>
+
+    <div class="card">
+        <div class="label">AI SMART SUGGESTION:</div>
+        <div id="aiPlan" style="margin-top:5px; line-height:1.4;">Ready for your next journey in Lagos? Enter details above.</div>
+        <div id="busalert"></div>
+    </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDadHWfbN93ASbVN_yAMjA3mSF8XdjvsdM&libraries=places"></script>
+
+<script>
+    let lMap;
+    let routeLayer;
+
+    function initApp() {
+        // Center on Lagos
+        lMap = L.map('map', { zoomControl: false }).setView([6.5244, 3.3792], 11);
+        
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap'
+        }).addTo(lMap);
+
+        L.control.zoom({ position: 'bottomright' }).addTo(lMap);
+
+        // Google Autocomplete Integration
+        new google.maps.places.Autocomplete(document.getElementById("start"));
+        new google.maps.places.Autocomplete(document.getElementById("end"));
+    }
+
+    function getLocation() {
+        if (navigator.geolocation) {
+            navigator.geolocation.getCurrentPosition(pos => {
+                const coords = [pos.coords.latitude, pos.coords.longitude];
+                document.getElementById("start").value = coords[0] + "," + coords[1];
+                lMap.flyTo(coords, 15);
+                L.marker(coords).addTo(lMap).bindPopup("Current Location").openPopup();
+            });
+        }
+    }
+
+    function calcRoute() {
+        const start = document.getElementById("start").value;
+        const end = document.getElementById("end").value;
+        const transport = document.getElementById("transport").value;
+        
+        // Map custom transit types to Google Modes
+        let googleMode = "DRIVING";
+        if(transport === "TRANSIT") googleMode = "TRANSIT";
+        if(transport === "WALKING") googleMode = "WALKING";
+
+        const service = new google.maps.DirectionsService();
+        service.route({
+            origin: start,
+            destination: end,
+            travelMode: google.maps.TravelMode[googleMode]
+        }, (result, status) => {
+            if (status === "OK") {
+                processRoute(result, transport);
+            }
+        });
+    }
+
+    function processRoute(result, transportMode) {
+        if (routeLayer) lMap.removeLayer(routeLayer);
+        
+        const leg = result.routes[0].legs[0];
+        const distKm = leg.distance.value / 1000;
+        
+        // Update Stats
+        document.getElementById("distance").innerText = distKm.toFixed(1) + " km";
+        document.getElementById("eta").innerText = leg.duration.text;
+        document.getElementById("fare").innerText = "₦" + calculateLagosFare(distKm, transportMode);
+        
+        // Smart AI Logic
+        generateAISuggestion(distKm, transportMode);
+
+        // Draw Route
+        const path = decodeGooglePolyline(result.routes[0].overview_polyline);
+        routeLayer = L.polyline(path, { color: '#0b5394', weight: 6, opacity: 0.8 }).addTo(lMap);
+        lMap.fitBounds(routeLayer.getBounds(), { padding: [50, 50] });
+    }
+
+    function calculateLagosFare(dist, mode) {
+        let base = 70; // Bus
+        if(mode === "TRANSIT") base = 45; // BRT
+        if(mode === "KEKE") base = 90;
+        if(mode === "OKADA") base = 120;
+        return Math.round(dist * base);
+    }
+
+    function generateAISuggestion(dist, mode) {
+        let msg = "";
+        if(dist > 15) {
+            msg = "Major trip detected. We recommend sticking to BRT or Rail lanes to avoid peak-hour traffic.";
+        } else if(dist < 3) {
+            msg = "Short trip. A Keke or a quick walk is likely faster than waiting for a bus.";
+        } else {
+            msg = "Standard commute. Check for traffic updates before heading out.";
+        }
+        document.getElementById("aiPlan").innerText = msg;
+        document.getElementById("busalert").innerText = dist > 2 ? "🔔 Alert: GPS will notify you 1km before your stop." : "";
+    }
+
+    // Helper: Decode Google Polyline
+    function decodeGooglePolyline(encoded) {
+        var points = [];
+        var index = 0, len = encoded.length;
+        var lat = 0, lng = 0;
+        while (index < len) {
+            var b, shift = 0, result = 0;
+            do { b = encoded.charCodeAt(index++) - 63; result |= (b & 0x1f) << shift; shift += 5; } while (b >= 0x20);
+            var dlat = ((result & 1) ? ~(result >> 1) : (result >> 1)); lat += dlat;
+            shift = 0; result = 0;
+            do { b = encoded.charCodeAt(index++) - 63; result |= (b & 0x1f) << shift; shift += 5; } while (b >= 0x20);
+            var dlng = ((result & 1) ? ~(result >> 1) : (result >> 1)); lng += dlng;
+            points.push([lat / 1e5, lng / 1e5]);
+        }
+        return points;
+    }
+
+    window.onload = initApp;
+</script>
+
+</body>
+</html>
